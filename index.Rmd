@@ -1,0 +1,721 @@
+---
+title: "Competitive Pokemon Type Balance"
+author: "amcooper2"
+date: "7 August 2023"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r installs, include=FALSE}
+# Installs all necessary packages and libraries in the background.
+
+install.packages("tidyverse")
+install.packages("gapminder")
+install.packages("rvest")
+install.packages('dplyr')
+
+library(gapminder)
+library(tidyverse)
+library(rvest)
+library(dplyr)
+
+```
+
+## Has the Pokemon Company successfully balanced each type competitively? 
+### Research Question
+
+In the most recent generation of Pokemon games (Generation 9), they have attempted to improve the balance of each of the types competitively, as well as giving Pokemon the ability to change their type once in battle, to sure up weaknesses.
+Have these changes combined helped to actually increase type diversity across the first set of competitive Pokemon tournaments of this generation compared to the previous?
+
+### Data Origins
+
+The website "limitlessvgc.com" has kept track of the number of times each Pokemon has reached the top 8 of a major competitive tournament in any team. This project uses web scraping to gather both this data and the data from the following website.
+
+The website "pokemondb.net" has a full list of Pokemon and the types that they belong to. This project uses this resource to create a lookup table to be able to work out the types of a Pokemon from the named stored in the tournament data.
+
+Unfortunately certain Pokemon with unique forms have had different naming conventions across different websites and so creating a perfect lookup table became difficult, meaning some manual input would be necessary for 100% of the data to be usable. This could greatly affect the newer generation as well, as there have been fewer tournaments so far, meaning the data is alredy more limited in comparison.
+
+On a longer scale project I would consider applying a best match algorithm as a part of the lookup search in order to find the closest matching name in the lookup table and help to remove any need for manual input without losing data.
+
+But for the sake of this project the visualisation has been done without this, but with graphs still being created using manually entered data to ensure that the conclusions are not misleading.
+
+Using web scraping in order to collect the data from "limitlessvgc.com":
+
+```{r web scraping generation 8}
+# POINTS EARNED DATA
+
+link_old <- 
+  "https://limitlessvgc.com/pokemon/?rank=points&time=all&type=all&region=all&format=vgc22&show=100"
+page_old <- read_html(link_old)
+
+pokemon_old <- page_old %>%
+  html_nodes(".pokemon-link") %>%
+  html_text()
+points_old <- page_old %>%
+  html_nodes("td:nth-child(4)") %>%
+  html_text()
+share_old <- page_old %>%
+  html_nodes("td:nth-child(5)") %>%
+  html_text()
+
+data_old <- data.frame(pokemon_old, points_old, share_old)
+# write.csv(data_old, "data_gen_8.csv")
+
+# Prints out the length and the head
+print(dim(data_old))
+print(head(data_old))
+```
+
+Then we do the same for the data from the new generation:
+
+```{r web scraping generation 9, echo=FALSE}
+link_new <- 
+  "https://limitlessvgc.com/pokemon/?rank=points&time=all&type=all&region=all&format=vgc23s1&show=100"
+page_new <- read_html(link_new)
+
+pokemon_new <- page_new %>%
+  html_nodes(".pokemon-link") %>%
+  html_text()
+points_new <- page_new %>%
+  html_nodes("td:nth-child(4)") %>%
+  html_text()
+share_new <- page_new %>%
+  html_nodes("td:nth-child(5)") %>%
+  html_text()
+
+data_new <- data.frame(pokemon_new, points_new, share_new)
+# write.csv(data_new, "data_gen_9.csv")
+
+# Prints out the length and the head
+print(dim(data_new))
+print(head(data_new))
+```
+
+Then finally the type lookup chart:
+
+```{r web scraping type chart, echo=FALSE}
+# TYPES DATA
+
+link_types <- "https://pokemondb.net/pokedex/all"
+page_types <- read_html(link_types)
+
+pokemon_names <- page_types %>%
+  html_nodes("td.cell-name") %>%
+  html_text()
+pokemon_types <- page_types %>%
+  html_nodes("td.cell-icon") %>%
+  html_text()
+
+data_types <- data.frame(pokemon_names, pokemon_types)
+
+# Prints out the length and the head
+print(dim(data_types))
+print(head(data_types))
+```
+
+#### Variables
+
+The number of points represents the number of top 8 appearences that Pokemon had, the share the proportion of teams it appeared in, which was unused in this project, but interesting data none the less. (With 6 Pokemon on each team, the share could sometimes be very high).
+
+
+### Data Preparation
+
+Here is what will become the final dataframe, though there will be alternative versions of it down the line for when certain visual representations will require them.
+
+```{r dataframe creation}
+data_final <- data.frame (
+  types = c("Normal", "Fire", "Water", "Grass", "Electric", "Ice", "Fighting", 
+            "Poison", "Ground", "Flying", "Psychic", "Bug", "Rock", "Ghost", 
+            "Dragon", "Dark", "Steel", "Fairy"),
+  old_values = c(0),
+  new_values = c(0)
+)
+```
+
+The data was first prepared by using the lookup table and assigning each Pokemon their respective types where possible.
+
+```{r old data preparation}
+types_old <- c()
+for (x in data_old$pokemon_old) {
+  type_row <- data_types[data_types$pokemon_names == x,]
+  type <- type_row[1,2]
+  #print(type)
+  types_old <- append(types_old, type)
+}
+
+data_old$types <- types_old
+print(head(data_old))
+
+```
+
+Then we do the same for generation 9.
+
+```{r new data preparation, echo=FALSE}
+
+types_new <- c()
+for (x in data_new$pokemon_new) {
+  type_row <- data_types[data_types$pokemon_names == x,]
+  type <- type_row[1,2]
+  #print(type)
+  types_new <- append(types_new, type)
+  
+}
+
+data_new$types <- types_new
+print(head(data_new))
+
+```
+
+As you can see, there are already some <NA> values that can be seen in the old data.
+
+Below is a quick calculation of how much of the data is missing due to this:
+
+``` {r error calculation, echo=FALSE}
+old_total = 0
+new_total = 0
+old_error = 0
+new_error = 0
+
+data_final <- data.frame (
+  types = c("Normal", "Fire", "Water", "Grass", "Electric", "Ice", "Fighting", 
+            "Poison", "Ground", "Flying", "Psychic", "Bug", "Rock", "Ghost", 
+            "Dragon", "Dark", "Steel", "Fairy"),
+  old_values = c(0),
+  new_values = c(0)
+)
+
+
+for (y in rownames(data_old)) {
+  y <- as.numeric(y)
+  
+  current_type <- data_old$types[y]
+  current_points <- data_old$points_old[y]
+  
+  current_points <- as.numeric(current_points)
+  for (z in rownames(data_final)) {
+    z <- as.numeric(z)
+    test_type <- data_final$types[z]
+    if (!is.na(current_type)) {
+      old_total <- old_total + current_points
+    } else {
+      old_error <- old_error + current_points
+    }
+  }
+}
+
+
+for (y in rownames(data_new)) {
+  y <- as.numeric(y)
+  
+  current_type <- data_new$types[y]
+  current_points <- data_new$points_new[y]
+
+  current_points <- as.numeric(current_points)
+  for (z in rownames(data_final)) {
+    z <- as.numeric(z)
+    test_type <- data_final$types[z]
+    if (!is.na(current_type)) {
+      new_total <- new_total + current_points
+    } else {
+      new_error <- new_error + current_points
+    }
+  }
+}
+
+
+
+# CALCULATING ERROR
+old_error <- old_error / 18
+old_total <- old_total / 18 + old_error
+new_error <- new_error / 18
+new_total <- new_total / 18 + new_error
+
+# PRINTING ERROR
+cat("Old error:", old_error/old_total)
+cat("New error:", new_error/new_total)
+
+```
+
+(This is the proportion of the representation that is missing in comparison to the maximum amount of representation which could be measured).
+
+The final dataframe, however, can be seen below:
+
+```{r creation of final dataframe}
+# FINAL DATA
+
+old_total = 0
+new_total = 0
+old_error = 0
+new_error = 0
+
+for (y in rownames(data_old)) {
+  y <- as.numeric(y)
+  
+  current_type <- data_old$types[y]
+  current_points <- data_old$points_old[y]
+  current_name <- data_old$pokemon_old[y]
+  
+  current_points <- as.numeric(current_points)
+  for (z in rownames(data_final)) {
+    z <- as.numeric(z)
+    test_type <- data_final$types[z]
+    if (!is.na(current_type)) {
+      old_total <- old_total + current_points
+      statement <- grepl(test_type, current_type, fixed=TRUE)
+      #print(test_type)
+      #print(statement)
+      if (grepl(test_type, current_type, fixed=TRUE)) {
+        data_final$old_values[z] <- data_final$old_values[z] + current_points
+      }
+      
+    } else {
+      old_error <- old_error + current_points
+    }
+  }
+}
+
+
+for (y in rownames(data_new)) {
+  y <- as.numeric(y)
+  
+  current_type <- data_new$types[y]
+  current_points <- data_new$points_new[y]
+
+  current_points <- as.numeric(current_points)
+  for (z in rownames(data_final)) {
+    z <- as.numeric(z)
+    test_type <- data_final$types[z]
+    if (!is.na(current_type)) {
+      new_total <- new_total + current_points
+      statement <- grepl(test_type, current_type, fixed=TRUE)
+      #print(test_type)
+      #print(statement)
+      if (grepl(test_type, current_type, fixed=TRUE)) {
+        data_final$new_values[z] <- data_final$new_values[z] + current_points
+      }
+    } else {
+      new_error <- new_error + current_points
+    }
+  }
+}
+
+print(head(data_final))
+
+```
+
+#### Alternative Dataframes
+
+Two more alternative versions of this dataframe were also made.
+
+One which uses a scalar factor and a separate column to state which generation the data came from, to mitigate the difference in sample size for a future visualisation:
+
+```{r scaled and combined dataframe}
+# DATA SCALING AND SORTING
+
+# Scale factor
+scale_factor <- mean(data_final$old_values)/mean(data_final$new_values)
+
+merged_data <- data.frame(status=rep(c("Generation 8", "Generation 9"), each=18),
+                          type=rep(c(data_final$types),2),
+                          representation=c(data_final$old_values, 
+                                           data_final$new_values*scale_factor))
+
+# write.csv(merged_data, "merged_data.csv")
+print(head(merged_data))
+
+```
+
+And another which contains the data sorted in order from least to most represented:
+
+```{r sorted data frame}
+# Sorting Data
+sorted_old_data <- data.frame (
+  type = c(data_final$types),
+  representation = c(data_final$old_values)
+)
+
+sorted_old_data <- sorted_old_data[order(sorted_old_data$representation),]
+
+sorted_new_data <- data.frame (
+  type = c(data_final$types),
+  representation = c(data_final$new_values)
+)
+
+sorted_new_data <- sorted_new_data[order(sorted_new_data$representation),]
+
+sorted_data <- data.frame(generation=rep(c("Generation 8", "Generation 9"), each=18),
+                            rank=rep(1:18,2),
+                            representation=c(sorted_old_data$representation, 
+                                  sorted_new_data$representation*scale_factor),
+                            type=c(sorted_old_data$type, sorted_new_data$type))
+
+# write.csv(sorted_data, "sorted_data.csv")
+print(head(sorted_new_data))
+
+```
+
+
+
+## Visualisations
+
+The first two visualisations are the sorted distributions of each type in each generation.
+
+``` {r colour lists, include=FALSE}
+
+type_colourings <- c("yellowgreen",
+                     "midnightblue",
+                     "purple4",
+                     "lightgoldenrod",
+                     "lightpink",
+                     "chocolate",
+                     "tomato",
+                     "skyblue1",
+                     "mediumpurple",
+                     "forestgreen",
+                     "burlywood4",
+                     "azure",
+                     "beige",
+                     "darkmagenta",
+                     "deeppink3",
+                     "salmon4",
+                     "slategrey",
+                     "royalblue")
+
+generation_colourings <- c("tomato3",
+                           "steelblue3")
+
+```
+
+### Generation 8 Type Representation
+
+``` {r generation 8 plot}
+# Generation 8
+ggplot(data = data_final, aes(x = reorder(types, +old_values), y = old_values, 
+                              fill = types)) +
+  geom_bar(stat="identity", color="white") + 
+  scale_fill_manual(values=type_colourings) +
+  scale_color_manual(values=) +
+  theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5), 
+        legend.position = "none") +
+  labs (title="The distribution of types in generation 8", 
+        x ="Types by ascending representation", y = "Representation")
+
+```
+
+```{r optional saving of generation 8 graph, include=FALSE}
+# ggsave(filename = "generation_8_bar_chart.png")
+```
+
+As you can see, some types are not even represented in generation 8, though it is worth noting that by manually entering in the missing data we can see that they should all in fact have some representation, even if it is still low.
+
+(Alternative graphs with 100% representation are shown at the end)
+
+
+
+### Generation 9 Type Representation
+
+``` {r generation 9 plot}
+ggplot(data = data_final, aes(x = reorder(types, +new_values), y = new_values, 
+                              fill = types)) +
+  geom_bar(stat="identity", color="white") +
+  scale_fill_manual(values=type_colourings) +
+  theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5), 
+        legend.position = "none") +
+  labs (title="The distribution of types in generation 9", 
+        x ="Types by ascending representation", y = "Representation")
+
+```
+
+```{r optional saving of generation 9 graph, include=FALSE}
+# ggsave(filename = "generation_9_bar_chart.png")
+```
+
+### Combined Distributions
+
+Here is a framing of both distributions next to eachother over the same axis, using the sorted dataframe created earlier.
+
+``` {r combined plot}
+# Side By Side Bar Chart
+# Coloured by generation
+ggplot(sorted_data, aes(fill=generation, y=representation, x=rank)) + 
+  geom_bar(position="dodge", stat="identity", color="white") +
+  scale_fill_manual(values=generation_colourings) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5), 
+        axis.ticks.x=element_blank()) +
+  labs (title="The difference in type distribution between generations 8 and 9 of competitive pokemon", 
+        x ="Types by ascending representation for each generation", 
+        y = "Weighted Representation", fill="Generations")
+
+```
+
+```{r optional saving of comparative bar graph, include=FALSE}
+# ggsave(filename = "combined_bar_chart.png")
+```
+
+This can already begin to quite clearly show the much higher peaks and lower troughs found in generation 8.
+
+### Comparing Quartiles
+
+Finally is a box plot using weighted representation thanks to the scaled dataframe created earlier, which I believe to be the clearest visualisation of the improved representation in generation 9 compared to generation 8:
+
+``` {r final box plot}
+# Box Plot
+ggplot(merged_data, aes(x=status, y=representation, fill=status)) + 
+  geom_boxplot(color="white") +
+  scale_fill_manual(values=generation_colourings) +
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=1, binwidth=200) +
+  labs (title="The difference in type distribution between generations 8 and 9 of competitive pokemon", 
+        x ="Generation", y = "Weighted Representation", fill="Generations")
+
+```
+
+```{r optional saving of box plot, include=FALSE}
+# ggsave(filename = "box_plot.png")
+```
+
+The improved representation here is represented by the more compact box plot shown in generation 9.
+
+#### Alternative Visualisation (with manually entered data)
+
+Below are the versions of these same visualisations, but with 100% of the data through manual entering of the missing type values:
+
+```{r manual entering of missing data, include=FALSE}
+types_new[7] <- "FightingWater"
+types_new[9] <- "Water"
+types_new[12] <- "DragonWater"
+types_new[26] <- "FightingFire"
+types_new[28] <- "DragonWater"
+types_new[29] <- "Normal"
+types_new[31] <- "NormalPsychic"
+types_new[34] <- "ElectricWater"
+types_new[38] <- "ElectricFire"
+types_new[63] <- "Rock"
+
+data_new$types <- types_new
+
+types_old[2] <- "FairySteel"
+types_old[4] <- "FlyingElectric"
+types_old[9] <- "PsychicGhost"
+types_old[13] <- "FlyingGround"
+types_old[17] <- "PsychicIce"
+types_old[18] <- "Flying"
+types_old[23] <- "NormalPsychic"
+types_old[27] <- "FightingDark"
+types_old[32] <- "Grass"
+types_old[34] <- "GrassPoison"
+types_old[37] <- "FireFlying"
+types_old[38] <- "FireDark"
+types_old[44] <- "DragonIce"
+types_old[45] <- "FlyingGround"
+types_old[48] <- "ElectricFire"
+types_old[56] <- "IceFire"
+types_old[60] <- "Water"
+types_old[63] <- "FlyingElectric"
+types_old[64] <- "Dark"
+types_old[68] <- "PsychicSteel"
+types_old[71] <- "GrassDragon"
+types_old[72] <- "DarkFairy"
+types_old[78] <- "DragonGround"
+types_old[80] <- "FightingSteel"
+types_old[86] <- "DragonGround"
+types_old[98] <- "FlyingFire"
+
+data_old$types <- types_old
+
+
+#print(head(data_old))
+#print(head(data_new))
+
+
+# MANUAL DATA
+
+data_manual <- data.frame (
+  types = c("Normal", "Fire", "Water", "Grass", "Electric", "Ice", "Fighting", 
+            "Poison", "Ground", "Flying", "Psychic", "Bug", "Rock", "Ghost", 
+            "Dragon", "Dark", "Steel", "Fairy"),
+  old_values = c(0),
+  new_values = c(0)
+)
+
+old_total = 0
+new_total = 0
+old_error = 0
+new_error = 0
+
+
+for (y in rownames(data_new)) {
+  y <- as.numeric(y)
+  
+  current_type <- data_new$types[y]
+  current_points <- data_new$points_new[y]
+  current_name <- data_new$pokemon_new[y]
+
+  current_points <- as.numeric(current_points)
+  for (z in rownames(data_manual)) {
+    z <- as.numeric(z)
+    test_type <- data_manual$types[z]
+    if (!is.na(current_type)) {
+      new_total <- new_total + current_points
+      statement <- grepl(test_type, current_type, fixed=TRUE)
+      #print(test_type)
+      #print(statement)
+      if (grepl(test_type, current_type, fixed=TRUE)) {
+        data_manual$new_values[z] <- data_manual$new_values[z] + current_points
+      }
+    } else {
+      new_error <- new_error + current_points
+    }
+  }
+}
+
+for (y in rownames(data_old)) {
+  y <- as.numeric(y)
+  
+  current_type <- data_old$types[y]
+  current_points <- data_old$points_old[y]
+  current_name <- data_old$pokemon_old[y]
+  
+  current_points <- as.numeric(current_points)
+  for (z in rownames(data_manual)) {
+    z <- as.numeric(z)
+    test_type <- data_manual$types[z]
+    if (!is.na(current_type)) {
+      old_total <- old_total + current_points
+      statement <- grepl(test_type, current_type, fixed=TRUE)
+      #print(test_type)
+      #print(statement)
+      if (grepl(test_type, current_type, fixed=TRUE)) {
+        data_manual$old_values[z] <- data_manual$old_values[z] + current_points
+      }
+      
+    } else {
+      old_error <- old_error + current_points
+    }
+  }
+}
+
+# CALCULATING ERROR
+old_error <- old_error / 18
+old_total <- old_total / 18 + old_error
+new_error <- new_error / 18
+new_total <- new_total / 18 + new_error
+
+
+# PRINTING RESULTS AND ERROR
+# print(data_manual)
+#print(head(data_manual))
+#print(cat("Old error:", old_error/old_total))
+#print(cat("New error:", new_error/new_total))
+#write.csv(data_manual, "data_manual_additions.csv")
+```
+
+Generation 8:
+
+```{r alternative generation 8 graph, echo=FALSE}
+# Generation 8
+ggplot(data = data_manual, aes(x = reorder(types, +old_values), y = old_values, 
+                               fill = types)) +
+  geom_bar(stat="identity", color="white") + 
+  scale_fill_manual(values=type_colourings) +
+  scale_color_manual(values=) +
+  theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5), 
+        legend.position = "none") +
+  labs (title="The distribution of types in generation 8", 
+        x ="Types by ascending representation", y = "Representation")
+```
+
+Generation 9:
+
+```{r alternative generation 9 graph, echo=FALSE}
+ggplot(data = data_manual, aes(x = reorder(types, +new_values), y = new_values, 
+                               fill = types)) +
+  geom_bar(stat="identity", color="white") +
+  scale_fill_manual(values=type_colourings) +
+  theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5), 
+        legend.position = "none") +
+  labs (title="The distribution of types in generation 9", 
+        x ="Types by ascending representation", y = "Representation")
+
+```
+
+Combined:
+
+```{r alternative combined graph, echo=FALSE}
+
+# New Scale Factor
+scale_factor <- mean(data_manual$old_values)/mean(data_manual$new_values)
+
+# Sorting Data
+sorted_old_data <- data.frame (
+  type = c(data_manual$types),
+  representation = c(data_manual$old_values)
+)
+
+sorted_old_data <- sorted_old_data[order(sorted_old_data$representation),]
+
+sorted_new_data <- data.frame (
+  type = c(data_manual$types),
+  representation = c(data_manual$new_values)
+)
+
+sorted_new_data <- sorted_new_data[order(sorted_new_data$representation),]
+
+sorted_manual <- data.frame(generation=rep(c("Generation 8", "Generation 9"), 
+                                           each=18),
+                            rank=rep(1:18,2),
+                            representation=c(sorted_old_data$representation, 
+                                  sorted_new_data$representation*scale_factor),
+                            type=c(sorted_old_data$type, sorted_new_data$type))
+
+# write.csv(sorted_manual, "sorted_manual.csv")
+# print(head(sorted_manual))
+
+
+# Side By Side Bar Chart
+# Coloured by generation
+ggplot(sorted_manual, aes(fill=generation, y=representation, x=rank)) + 
+  geom_bar(position="dodge", stat="identity", color="white") +
+  scale_fill_manual(values=generation_colourings) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5), axis.ticks.x=element_blank()) +
+  labs (title="The difference in type distribution between generations 8 and 9 of competitive pokemon", 
+        x ="Types by ascending representation for each generation", 
+        y = "Weighted Representation", fill="Generations")
+```
+
+Quartiles box plot:
+
+```{r alternative box plot, echo=FALSE}
+# Scale factor
+scale_factor <- mean(data_manual$old_values)/mean(data_manual$new_values)
+
+merged_manual <- data.frame(status=rep(c("Generation 8", "Generation 9"), 
+                                       each=18),
+                          type=rep(c(data_manual$types),2),
+                          representation=c(data_manual$old_values, 
+                                           data_manual$new_values*scale_factor))
+
+# write.csv(merged_manual, "merged_manual.csv")
+# print(head(merged_manual))
+
+ggplot(merged_manual, aes(x=status, y=representation, fill=status)) + 
+  geom_boxplot(color="white") +
+  scale_fill_manual(values=generation_colourings) +
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=1, binwidth=200) +
+  labs (title="The difference in type distribution between generations 8 and 9 of competitive pokemon", 
+        x ="Generation", y = "Weighted Representation", fill="Generations")
+```
+
+### Summary
+
+Overall there does appear to be some better representation between Pokemon types in the new generation.
+
+It is important to note, however that when 100% of the data is used, this improvement does lessen.
+
+Were I to continue to do this, I would like to improve how much data could be used without manual input through the use of a best match algorithm as a part of the lookup.
+
+I might also look into the use of ggpattern in order to potentially add many new tools to the visualisation of these graphs such as textures.
+
+Finally, I would wait until the end of the second year of the game's release to do it again as each generation tends to cover 2 yearly world tournaments each and so by waiting until after they were complete I would have access to much more data from generation 9 and could potentially even lessen the need for a scale factor.
+
